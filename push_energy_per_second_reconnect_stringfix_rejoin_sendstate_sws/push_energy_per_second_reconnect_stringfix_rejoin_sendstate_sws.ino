@@ -8,14 +8,17 @@
  */
 
 #include <WiFlyHQ.h>
+#include <SoftwareSerial.h>
+
+SoftwareSerial wifiSerial(8,9); // RX, TX
 
 // WiFi & network settings
 WiFly wifly;
-const char wifiSSID[] = "babymatt";
-const char wifiPassword[] = "lookyhere6";
+//const char wifiSSID[] = "babymatt";
+//const char wifiPassword[] = "lookyhere6";
 
-//const char wifiSSID[] = "Comfort_Zone";
-//const char wifiPassword[] = "1441dekalbno8";
+const char wifiSSID[] = "Comfort_Zone";
+const char wifiPassword[] = "1441dekalbno8";
 
 //const char wifiSSID[] = "internetz";
 //const char wifiPassword[] = "1nt3rn3tz";
@@ -33,14 +36,20 @@ char feedId[] = "124246";
 char cosmKey[] = "lRRvQT0QkYTbTz1vGMCvavaG0uiSAKxaZU9JYW5LdUNDST0g";
 
 // Set up accelerometer pins
-const int accelerometerXPin = A2;
-const int accelerometerYPin = A3;
-const int accelerometerZPin = A4;
+const int accelerometerXPin = A0;
+const int accelerometerYPin = A1;
+const int accelerometerZPin = A2;
 
 float xEnergy;
 float yEnergy;
 float zEnergy;
 float accelerometerEnergy;
+
+int currentState = 1;
+int prevState = 1;
+
+const int thresholdLowToMed = 100;
+const int thresholdMedtoHigh = 1000;
 
 static String accX = "x";
 static String accY = "y";
@@ -48,7 +57,8 @@ static String accZ = "z";
 static String accE = "e";
 
 // Use analog pins as ground for accelerometer
-const int ground = A5;
+const int ground = 15;
+const int power = 14;
 
 // Counter for which position of the array is being written to
 int counter = 0;
@@ -75,29 +85,31 @@ void setup() {
   // Begin serial for WiFly
   // MUST BE 9600!
   Serial.begin(9600);
-  wifly.begin(&Serial);
+  wifiSerial.begin(9600);
+  wifly.begin(&wifiSerial, &Serial);
 
   // Join wifi network if not already associated
   if (!wifly.isAssociated()) {
 
     wifly.setSSID(wifiSSID);
     wifly.setPassphrase(wifiPassword);
+    wifly.setJoin(WIFLY_WLAN_JOIN_AUTO);
     wifly.enableDHCP();
 
     if (wifly.join()) {
-      // Joined
+      Serial.println("Joined network.");
     } 
     else {
-      // Couldn't join
+      Serial.println("Could not associate with network.");
     }
   } 
   else {
-    // Already joined
+    Serial.println("Already associated with network.");
   }
 
   wifly.setDeviceID("Wifly-WebClient");
   if (wifly.isConnected()) {
-    // Already connected, close & make sure we're connected to correct server/port
+    Serial.println("Closing existing connection.");
     wifly.close();
   }
 
@@ -111,25 +123,32 @@ void setup() {
 
   // Set up pin for accelerometer ground
   pinMode(ground, OUTPUT);
+  pinMode(power, OUTPUT);
 }
 
 void loop() {
 
   // Check sonnection
-  if (wifly.isConnected() == false) {
-    if (wifly.open(site, port)) {
-      // Connected
-    } 
-    else {
-      // Failed to open
-    }
+  if(wifly.isAssociated()){
+    if (wifly.isConnected() == false) {
+      Serial.println("Not connected to network, trying to connect...");
+      if (wifly.open(site, port)) {
+        Serial.println("Opened network connection.");
+      } 
+      else {
+        Serial.println("Failed to open connection.");
+      }
 
-    delay(1000);
+      delay(1000);
+    }
+  } else {
+    Serial.println("Not associated within run loop.");
   }
 
 
   // Set state for accelerometer ground pin
   digitalWrite(ground, LOW);
+  digitalWrite(power, HIGH);
 
   // Grab current time so we can check if we need to sample or calculate anything
   unsigned long currentMillis = millis();
@@ -193,24 +212,22 @@ void loop() {
       }
 
       accelerometerEnergy = xEnergy + yEnergy + zEnergy;
-      //pushToCOSM();
 
-      //      Serial.print("x: ");
-      //      Serial.print(xEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("y: ");
-      //      Serial.print(yEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("z: ");
-      //      Serial.print(zEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("total: ");
-      //      Serial.print(accelerometerEnergy);
-      //      Serial.print("\n");
+      if (accelerometerEnergy < thresholdLowToMed) {
+        currentState = 1;
+      }
+      if (accelerometerEnergy >= thresholdLowToMed && accelerometerEnergy < thresholdMedtoHigh) {
+        currentState = 2;
+      }
+      if (accelerometerEnergy >= thresholdMedtoHigh) {
+        currentState = 3;
+      }
 
+      if (currentState != prevState) {
+        sendStateToCOSM();
+      }
+
+      prevState = currentState;
 
       // Reset counter to begin storing at beginning of array
       counter = 0;
@@ -294,6 +311,22 @@ void pushToCOSM() {
   wifly.println();
 
 }
+
+void sendStateToCOSM() {
+
+  wifly.print("{\"method\":\"put\",\"resource\":\"/feeds/");
+  wifly.print(feedId);
+  wifly.print("\",\"headers\":{\"X-ApiKey\":\"");
+  wifly.print(cosmKey);
+  wifly.print("\"},\"body\":{\"version\":\"1.0.0\",\"datastreams\":[");
+  wifly.print("{\"id\":\"state\",\"current_value\":\"");
+  wifly.print(currentState);
+  wifly.print("\"}]}}");
+  wifly.println();
+
+}
+
+
 
 
 

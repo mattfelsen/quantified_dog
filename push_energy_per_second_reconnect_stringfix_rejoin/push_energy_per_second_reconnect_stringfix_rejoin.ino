@@ -11,11 +11,11 @@
 
 // WiFi & network settings
 WiFly wifly;
-const char wifiSSID[] = "babymatt";
-const char wifiPassword[] = "lookyhere6";
+//const char wifiSSID[] = "babymatt";
+//const char wifiPassword[] = "lookyhere6";
 
-//const char wifiSSID[] = "Comfort_Zone";
-//const char wifiPassword[] = "1441dekalbno8";
+const char wifiSSID[] = "Comfort_Zone";
+const char wifiPassword[] = "1441dekalbno8";
 
 //const char wifiSSID[] = "internetz";
 //const char wifiPassword[] = "1nt3rn3tz";
@@ -82,6 +82,7 @@ void setup() {
 
     wifly.setSSID(wifiSSID);
     wifly.setPassphrase(wifiPassword);
+    wifly.setJoin(WIFLY_WLAN_JOIN_AUTO);
     wifly.enableDHCP();
 
     if (wifly.join()) {
@@ -116,15 +117,17 @@ void setup() {
 void loop() {
 
   // Check sonnection
-  if (wifly.isConnected() == false) {
-    if (wifly.open(site, port)) {
-      // Connected
-    } 
-    else {
-      // Failed to open
-    }
+  if(wifly.isAssociated()){
+    if (wifly.isConnected() == false) {
+      if (wifly.open(site, port)) {
+        // Connected
+      } 
+      else {
+        // Failed to open
+      }
 
-    delay(1000);
+      delay(1000);
+    }
   }
 
 
@@ -294,6 +297,7 @@ void pushToCOSM() {
   wifly.println();
 
 }
+
 
 
 

@@ -33,14 +33,27 @@ char feedId[] = "124246";
 char cosmKey[] = "lRRvQT0QkYTbTz1vGMCvavaG0uiSAKxaZU9JYW5LdUNDST0g";
 
 // Set up accelerometer pins
+// For Fio
 const int accelerometerXPin = A2;
 const int accelerometerYPin = A3;
 const int accelerometerZPin = A4;
+
+// For Pro Micro
+//const int accelerometerXPin = A0;
+//const int accelerometerYPin = A1;
+//const int accelerometerZPin = A2;
 
 float xEnergy;
 float yEnergy;
 float zEnergy;
 float accelerometerEnergy;
+
+int currentState = 1;
+int prevState = 1;
+unsigned long lastStateChangeTime = 0;
+
+const int thresholdLowToMed = 200;
+const int thresholdMedtoHigh = 1000;
 
 static String accX = "x";
 static String accY = "y";
@@ -48,7 +61,12 @@ static String accZ = "z";
 static String accE = "e";
 
 // Use analog pins as ground for accelerometer
+// For Fio
 const int ground = A5;
+
+// For Pro Micro
+//const int power = 14;
+//const int ground = 15;
 
 // Counter for which position of the array is being written to
 int counter = 0;
@@ -63,7 +81,7 @@ long prevMillis = 0;
 
 // Frequency of sending data
 long intervalPush = 1000;
-long prevMillisPush = 0;
+unsigned long prevMillisPush = 0;
 
 // Sample storage
 float accelerometerX[SAMPLE_FREQUENCY];
@@ -74,25 +92,31 @@ void setup() {
 
   // Begin serial for WiFly
   // MUST BE 9600!
+  // For Fio
   Serial.begin(9600);
   wifly.begin(&Serial);
+  
+  // For Pro Micro
+//  Serial1.begin(9600);
+//  wifly.begin(&Serial1);
 
   // Join wifi network if not already associated
   if (!wifly.isAssociated()) {
 
     wifly.setSSID(wifiSSID);
     wifly.setPassphrase(wifiPassword);
+    wifly.setJoin(WIFLY_WLAN_JOIN_AUTO);
     wifly.enableDHCP();
 
     if (wifly.join()) {
-      // Joined
+      //Serial.println("Joined network.");
     } 
     else {
-      // Couldn't join
+      //Serial.println("Could not associate with network.");
     }
   } 
   else {
-    // Already joined
+    //Serial.println("Already associated with network.");
   }
 
   wifly.setDeviceID("Wifly-WebClient");
@@ -110,25 +134,34 @@ void setup() {
 
 
   // Set up pin for accelerometer ground
+  //pinMode(power, OUTPUT);
   pinMode(ground, OUTPUT);
 }
 
 void loop() {
 
   // Check sonnection
-  if (wifly.isConnected() == false) {
-    if (wifly.open(site, port)) {
-      // Connected
-    } 
-    else {
-      // Failed to open
-    }
+  if(wifly.isAssociated()){
+    if (wifly.isConnected() == false) {
+      //Serial.println("Not connected to network, trying to connect...");
+      if (wifly.open(site, port)) {
+        //Serial.println("Opened network connection.");
+      } 
+      else {
+        //Serial.println("Failed to open connection.");
+      }
 
-    delay(1000);
+      delay(1000);
+    } else {
+      //Serial.println("Connected to the network :)");
+    }
+  } else {
+    //Serial.println("Not associated within run loop.");
   }
 
 
   // Set state for accelerometer ground pin
+  //digitalWrite(power, HIGH);
   digitalWrite(ground, LOW);
 
   // Grab current time so we can check if we need to sample or calculate anything
@@ -193,24 +226,25 @@ void loop() {
       }
 
       accelerometerEnergy = xEnergy + yEnergy + zEnergy;
-      //pushToCOSM();
 
-      //      Serial.print("x: ");
-      //      Serial.print(xEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("y: ");
-      //      Serial.print(yEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("z: ");
-      //      Serial.print(zEnergy);
-      //      Serial.print("\t");
-      //
-      //      Serial.print("total: ");
-      //      Serial.print(accelerometerEnergy);
-      //      Serial.print("\n");
+      if (accelerometerEnergy < thresholdLowToMed) {
+        currentState = 1;
+      }
+      if (accelerometerEnergy >= thresholdLowToMed && accelerometerEnergy < thresholdMedtoHigh) {
+        currentState = 2;
+      }
+      if (accelerometerEnergy >= thresholdMedtoHigh) {
+        currentState = 3;
+      }
 
+      if (currentState != prevState) {
+        //if ((currentMillis - lastStateChangeTime) > 5000) {
+          sendStateToCOSM();
+        //}
+        //lastStateChangeTime = currentMillis;
+      }
+
+      prevState = currentState;
 
       // Reset counter to begin storing at beginning of array
       counter = 0;
@@ -294,6 +328,22 @@ void pushToCOSM() {
   wifly.println();
 
 }
+
+void sendStateToCOSM() {
+
+  wifly.print("{\"method\":\"put\",\"resource\":\"/feeds/");
+  wifly.print(feedId);
+  wifly.print("\",\"headers\":{\"X-ApiKey\":\"");
+  wifly.print(cosmKey);
+  wifly.print("\"},\"body\":{\"version\":\"1.0.0\",\"datastreams\":[");
+  wifly.print("{\"id\":\"state\",\"current_value\":\"");
+  wifly.print(currentState);
+  wifly.print("\"}]}}");
+  wifly.println();
+
+}
+
+
 
 
 
